@@ -44,6 +44,7 @@ async function startSync() {
   const queryAanvragen = `
     PREFIX dct: <http://purl.org/dc/terms/>
     PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+    PREFIX mu:   <http://mu.semte.ch/vocabularies/core/>
     SELECT ?uri ?p ?o ?orgId 
     {
       GRAPH ?g {

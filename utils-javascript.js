@@ -1,3 +1,13 @@
+export default function ensureArray(value) {
+  if (!value) {
+    return [];
+  } else if (!Array.isArray(value)) {
+    return [value];
+  } else {
+    return value;
+  }
+}
+
 export function collapsArrayOfObjects(array, keysToKeep, keyToCollapse, collapsedKeyName) {
   const results = [];
   const keys = ensureArray(keysToKeep);
