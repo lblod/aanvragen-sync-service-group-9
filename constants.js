@@ -1,0 +1,1 @@
+const PREFIX_ORGANIZATION_GRAPH = "http://mu.semte.ch/graphs/organizations/"

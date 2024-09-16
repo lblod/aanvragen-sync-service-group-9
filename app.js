@@ -44,7 +44,7 @@ async function startSync() {
   const queryAanvragen = `
     PREFIX dct: <http://purl.org/dc/terms/>
     PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
-    SELECT ?uri ?p ?o ?org 
+    SELECT ?uri ?p ?o ?orgId 
     {
       GRAPH ?g {
        select ?uri {
@@ -54,6 +54,7 @@ async function startSync() {
       }  LIMIT 20
         ?uri ?p ?o .
         ?uri ext:Org ?org .
+        ?org mu:uuid ?orgId .
       }
     } ORDER BY DESC(?created)
   `;
@@ -76,7 +77,7 @@ async function startSync() {
     INSERT DATA {
       ${triplesToAdd.map(({org, triples}) => {
         `
-        GRAPH <${sparqlEscapeUri(org)}> {
+        GRAPH <${PREFIX_ORGANIZATION_GRAPH}${org}> {
         ${triples.join(" .\n")}
       }`
       })}
