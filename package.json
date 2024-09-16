@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@lblod/mu-auth-sudo": "^0.6.1",
+    "cron": "^3.1.7"
+  }
+}
