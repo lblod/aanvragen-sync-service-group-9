@@ -6,8 +6,9 @@ import { collapsArrayOfObjects, joinAndEnd } from "./utils-javascript";
 const PREFIX_ORGANIZATION_GRAPH = "http://mu.semte.ch/graphs/organizations/"
 const ENDPOINT_LOKET = process.env.ENDPOINT_LOKET || "https://loket-sparql.hackathon-9.s.redhost.be/sparql";
 const MOCK_GRAPH = "http://mu.semte.ch/graphs/mock-loket";
-const ALWAYS_SYNC = true;
+const ALWAYS_SYNC = process.env.ALWAYS_SYNC === 'true'? true : false;
 const AUTO_SYNC = true;
+const CRON_PATTERN = process.env.CRON_PATTERN || "* * * * *"
 
 app.get("/hello", function (req, res) {
   res.send("Hello mu-javascript-template");
@@ -58,7 +59,7 @@ async function startSync() {
   PREFIX dct: <http://purl.org/dc/terms/>
   PREFIX dbpedia: <http://dbpedia.org/ontology/>
   PREFIX omgeving: <https://data.vlaanderen.be/ns/omgevingsvergunning#>
-  SELECT ?created 
+  SELECT ?created WHERE
   {
     GRAPH ?g {
       ?uri a <http://dbpedia.org/resource/Case> ;
@@ -86,7 +87,7 @@ async function startSync() {
     PREFIX dbpedia: <http://dbpedia.org/ontology/>
     PREFIX omgeving: <https://data.vlaanderen.be/ns/omgevingsvergunning#>
     PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
-    select distinct ?uri {
+    select distinct ?uri WHERE {
       GRAPH ${ENDPOINT_LOKET === "" ? `<${MOCK_GRAPH}>` : "?g"} {
         ?uri a <http://dbpedia.org/resource/Case> ;
             omgeving:zaakhandeling/omgeving:ingangsdatum ?created .
@@ -111,7 +112,7 @@ async function startSync() {
     PREFIX dbpedia: <http://dbpedia.org/ontology/>
     PREFIX omgeving: <https://data.vlaanderen.be/ns/omgevingsvergunning#>
     PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
-    SELECT DISTINCT ?org ?s ?p ?o {
+    SELECT DISTINCT ?org ?s ?p ?o WHERE {
       GRAPH ${ENDPOINT_LOKET === "" ? `<${MOCK_GRAPH}>` : "?g"} {
         ?uri omgeving:zaakhandeling ?submission . 
         ?submission omgeving:Rechtshandeling.verantwoordelijke ?org .
@@ -167,7 +168,7 @@ async function startSync() {
     PREFIX dbpedia: <http://dbpedia.org/ontology/>
     PREFIX omgeving: <https://data.vlaanderen.be/ns/omgevingsvergunning#>
     PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
-    SELECT DISTINCT ?org ?uri ?submission {
+    SELECT DISTINCT ?org ?uri ?submission WHERE {
       GRAPH ${ENDPOINT_LOKET === "" ? `<${MOCK_GRAPH}>` : "?g"} {
       ?uri omgeving:zaakhandeling ?submission . 
       ?submission omgeving:Rechtshandeling.verantwoordelijke ?org .
@@ -204,7 +205,7 @@ async function startSync() {
     PREFIX dbpedia: <http://dbpedia.org/ontology/>
     PREFIX omgeving: <https://data.vlaanderen.be/ns/omgevingsvergunning#>
     PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
-    SELECT DISTINCT ?org (?aanvrager as ?s) ?p ?o {
+    SELECT DISTINCT ?org (?aanvrager as ?s) ?p ?o WHERE {
       GRAPH ${ENDPOINT_LOKET === "" ? `<${MOCK_GRAPH}>` : "?g"} {
         ?uri omgeving:zaakhandeling ?submission . 
         ?submission omgeving:Rechtshandeling.verantwoordelijke ?org .
