@@ -1,12 +1,12 @@
-import { app, errorHandler, sparqlEscapeUri, sparqlEscapeDateTime, sparqlEscapeString } from "mu";
+import { app, errorHandler, sparqlEscapeUri, sparqlEscapeDateTime, sparqlEscapeString, query } from "mu";
 import { CronJob } from "cron";
 import { querySudo, updateSudo } from "@lblod/mu-auth-sudo";
 import { collapsArrayOfObjects, joinAndEnd } from "./utils-javascript";
 
 const PREFIX_ORGANIZATION_GRAPH = "http://mu.semte.ch/graphs/organizations/"
-const ENDPOINT_LOKET = "https://loket.hackathon-9.s.redhost.be/sparql";
+const ENDPOINT_LOKET = "https://loket-sparql.hackathon-9.s.redhost.be/sparql";
 const MOCK_GRAPH = "http://mu.semte.ch/graphs/mock-loket";
-const ALWAYS_SYNC = false;
+const ALWAYS_SYNC = true;
 app.get("/hello", function (req, res) {
   res.send("Hello mu-javascript-template");
 });
@@ -87,7 +87,7 @@ async function startSync() {
             omgeving:zaakhandeling/omgeving:ingangsdatum ?created .
         FILTER ( ?created > ${sparqlEscapeDateTime(date)})    
       }
-    } ORDER BY DESC(?created) LIMIT 10 
+    } ORDER BY DESC(?created) ${ALWAYS_SYNC? "": "LIMIT 10"}
   `;
   // do this query to the external sparql endpoint (?)
   result = await querySudo(queryCases, {}, createConnectionOptionsLoket());
@@ -96,6 +96,7 @@ async function startSync() {
     return; // no new cases
   }
   const urisCases = bindings.map((b) => b.uri.value);
+
   // query all the triples that should be transfered.
   // omgeving:zaakhandeling is handled separately to only copy to the org (municipality) it is part of
   const queryInfo = `
@@ -118,7 +119,7 @@ async function startSync() {
           ?uri dct:subject ?s .
           ?s ?p ?o . 
         } UNION {
-          ?submission ?p ?s .
+          ?submission ?p ?o .
           ?s ?p ?o . 
         }
           UNION {
@@ -154,8 +155,6 @@ async function startSync() {
     "triple",
     "triples"
   );
-  // console.log(bindings)
-  // console.log(triplesToAdd)
   const queryAddAanvragen = `
   PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
   INSERT DATA {
@@ -200,7 +199,7 @@ async function startSync() {
     "triple",
     "triples"
   );
-
+  
   const submissionsToAddQuery = `
   PREFIX omgeving: <https://data.vlaanderen.be/ns/omgevingsvergunning#>
   PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
