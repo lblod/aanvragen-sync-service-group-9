@@ -157,18 +157,7 @@ async function startSync() {
     "triple",
     "triples"
   );
-  const queryAddAanvragen = `
-  PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
-  INSERT DATA {
-    ${triplesToAdd.map(({ org, triples }) => {
-      return `GRAPH <${PREFIX_ORGANIZATION_GRAPH}${org.split('/').slice(-1)[0]}> {
-      ${joinAndEnd(triples," .\n")}
-    }
-    `
-    }).join(" ")}
-  }
-`;
-  await updateSudo(queryAddAanvragen);
+  await addTriplesByOrg(triplesToAdd);
 
   // add the link between cases and submission where allowed.
   const querySubmissionOfCase = `
@@ -202,18 +191,62 @@ async function startSync() {
     "triples"
   );
 
-  const submissionsToAddQuery = `
+  await addTriplesByOrg(submissionsToAdd);
+
+
+
+
+  // add organization info where needed
+  const queryOrgInfo = `
+    PREFIX dct: <http://purl.org/dc/terms/>
+    PREFIX ext: <http://mu.semte.ch/vocabularies/ext/>
+    PREFIX mu:   <http://mu.semte.ch/vocabularies/core/>
+    PREFIX dbpedia: <http://dbpedia.org/ontology/>
+    PREFIX omgeving: <https://data.vlaanderen.be/ns/omgevingsvergunning#>
+    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+    SELECT DISTINCT ?org (?aanvrager as ?s) ?p ?o {
+      GRAPH ${ENDPOINT_LOKET === "" ? `<${MOCK_GRAPH}>` : "?g"} {
+        ?uri omgeving:zaakhandeling ?submission . 
+        ?submission omgeving:Rechtshandeling.verantwoordelijke ?org .
+        ?submission omgeving:aanvrager ?aanvrager .
+      }
+      GRAPH ${ENDPOINT_LOKET === "" ? `<${MOCK_GRAPH}>` : "?g2"} {
+        ?aanvrager ?p ?o .
+      }
+      VALUES ?uri { ${urisCases.map((uri) => sparqlEscapeUri(uri)).join(" ")} }
+    }
+  `;
+  result = await querySudo(queryOrgInfo, {}, createConnectionOptionsLoket());
+  bindings = result.results.bindings;
+  if (bindings.length === 0) {
+    return; // no info?
+  }
+
+  const orgInfoToAdd = collapsArrayOfObjects(
+    bindings.map((b) => ({
+      org: b.org.value,
+      triple: createTriple(b),
+    })),
+    "org",
+    "triple",
+    "triples"
+  );
+  await addTriplesByOrg(orgInfoToAdd);
+}
+
+async function addTriplesByOrg(orgAndTriples) {
+  const addInfoQuery = `
   PREFIX omgeving: <https://data.vlaanderen.be/ns/omgevingsvergunning#>
   PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
   INSERT DATA {
-    ${submissionsToAdd.map(({ org, triples }) => {
+    ${orgAndTriples.map(({ org, triples }) => {
       return `GRAPH <${PREFIX_ORGANIZATION_GRAPH}${org.split('/').slice(-1)[0]}> {
       ${joinAndEnd(triples," .\n")}
       }`
     }).join(" ")}
   }
 `;
-  await updateSudo(submissionsToAddQuery);
+  await updateSudo(addInfoQuery);
 }
 
 app.use(errorHandler);
