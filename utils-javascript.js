@@ -8,6 +8,14 @@ export default function ensureArray(value) {
   }
 }
 
+export function joinAndEnd(theArray, delimiter) {
+  if (theArray && theArray.length > 0) {
+    return `${theArray.join(delimiter)}${delimiter}`;
+  } else {
+    return "";
+  }
+}
+
 export function collapsArrayOfObjects(array, keysToKeep, keyToCollapse, collapsedKeyName) {
   const results = [];
   const keys = ensureArray(keysToKeep);

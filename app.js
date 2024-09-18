@@ -1,13 +1,17 @@
-import { app, errorHandler, sparqlEscapeUri, sparqlEscapeDateTime } from "mu";
+import { app, errorHandler, sparqlEscapeUri, sparqlEscapeDateTime, sparqlEscapeString } from "mu";
 import { CronJob } from "cron";
 import { querySudo, updateSudo } from "@lblod/mu-auth-sudo";
-import { collapsArrayOfObjects } from "./utils-javascript";
+import { collapsArrayOfObjects, joinAndEnd } from "./utils-javascript";
 
+const PREFIX_ORGANIZATION_GRAPH = "http://mu.semte.ch/graphs/organizations/"
+const ENDPOINT_LOKET = "https://loket.hackathon-9.s.redhost.be/sparql";
+const MOCK_GRAPH = "http://mu.semte.ch/graphs/mock-loket";
+const ALWAYS_SYNC = false;
 app.get("/hello", function (req, res) {
   res.send("Hello mu-javascript-template");
 });
 
-app.get("start-sync", function (req, res) {
+app.get("/start-sync", function (req, res) {
   startSync();
   res.send("started sync");
 });
@@ -17,6 +21,31 @@ const syncJob = new CronJob("*/5 * * * *", async function () {
 });
 // syncJob.start();
 
+function createTriple(bindings) {
+  let triple = `${sparqlEscapeUri(bindings.s.value)} ${sparqlEscapeUri(bindings.p.value)} `
+  if(bindings.o.type === 'uri') {
+    triple += `${sparqlEscapeUri(bindings.o.value)}`;
+  } else if (bindings.o.type === 'literal') {
+    triple += `${sparqlEscapeString(bindings.o.value)}`;
+  } else if (bindings.o.type === 'typed-literal') {
+    triple += `"${bindings.o.value}"^^<${bindings.o.datatype}>`;
+  } else {
+    console.warn("not supported triple");
+    return "";
+  }
+  return triple;
+}
+
+function createConnectionOptionsLoket() {
+  if (ENDPOINT_LOKET === "") {
+    return {};
+  } else {
+    return {
+      sparqlEndpoint: ENDPOINT_LOKET,
+      mayRetry: true,
+    };
+  }
+}
 async function startSync() {
   // get the latest aanvraag existing in database, based on dct:created
   // search in any graph (= in any `http://mu.semte.ch/graphs/organizations/` graph)
@@ -27,18 +56,21 @@ async function startSync() {
   SELECT ?created 
   {
     GRAPH ?g {
-      ?uri a dbpedia:Case ;
-           omgeving:ingangsdatum ?created .
+      ?uri a <http://dbpedia.org/resource/Case> ;
+           omgeving:zaakhandeling/omgeving:ingangsdatum ?created .
     }
   } ORDER BY DESC(?created) LIMIT 1
   `;
   let result = await querySudo(queryString);
   let bindings = result.results.bindings;
   let date;
-  if (bindings.length > 0) {
+  if(ALWAYS_SYNC) {
+    date = "2023-01-01T00:00:00Z";
+  }
+  else if (bindings.length > 0) {
     date = result.results.bindings[0].created.value;
   } else {
-    date = "2024-01-01T00:00:00Z";
+    date = "2023-01-01T00:00:00Z";
   }
 
   // takes triples of Case and one-deep relationships.
@@ -48,26 +80,22 @@ async function startSync() {
     PREFIX mu:   <http://mu.semte.ch/vocabularies/core/>
     PREFIX dbpedia: <http://dbpedia.org/ontology/>
     PREFIX omgeving: <https://data.vlaanderen.be/ns/omgevingsvergunning#>
-    SELECT ?uri {
-      GRAPH ?g {
-       select ?uri ?created {
-        ?uri a dbpedia:Case ;
-            omgeving:ingangsdatum ?created .
+    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+    select distinct ?uri {
+      GRAPH ${ENDPOINT_LOKET === "" ? `<${MOCK_GRAPH}>` : "?g"} {
+        ?uri a <http://dbpedia.org/resource/Case> ;
+            omgeving:zaakhandeling/omgeving:ingangsdatum ?created .
         FILTER ( ?created > ${sparqlEscapeDateTime(date)})    
-      } ORDER BY DESC(?created) LIMIT 10 
-    }
+      }
+    } ORDER BY DESC(?created) LIMIT 10 
   `;
   // do this query to the external sparql endpoint (?)
-  const connectionOptions = {
-    sparqlEndpoint: "http://the.custom.endpoint/sparql",
-    mayRetry: true,
-  };
-  result = await querySudo(queryCases, {}, connectionOptions);
+  result = await querySudo(queryCases, {}, createConnectionOptionsLoket());
   bindings = result.results.bindings;
   if (bindings.length === 0) {
     return; // no new cases
-  }  
-  const urisCases = bindings.map(b => b.uri.value);
+  }
+  const urisCases = bindings.map((b) => b.uri.value);
   // query all the triples that should be transfered.
   // omgeving:zaakhandeling is handled separately to only copy to the org (municipality) it is part of
   const queryInfo = `
@@ -76,61 +104,67 @@ async function startSync() {
     PREFIX mu:   <http://mu.semte.ch/vocabularies/core/>
     PREFIX dbpedia: <http://dbpedia.org/ontology/>
     PREFIX omgeving: <https://data.vlaanderen.be/ns/omgevingsvergunning#>
-    SELECT DISTINCT ?orgId ?s ?p ?o {
-      GRAPH ?g {
-       ?uri omgeving:zaakhandeling ?submission . 
-       ?submission omgeving:Rechtshandeling.verantwoordelijke/mu:uuid ?orgId .
-       {
-        ?uri ?p ?o .
-        ?s ?p ?o .
-        FILTER( p != omgeving:zaakhandeling )
-       }
-       UNION {
-        ?uri dct:subject ?s .
-        ?s ?p ?o . 
-       } UNION {
-        ?submission ?p ?s .
-        ?s ?p ?o . 
-       }
+    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+    SELECT DISTINCT ?org ?s ?p ?o {
+      GRAPH ${ENDPOINT_LOKET === "" ? `<${MOCK_GRAPH}>` : "?g"} {
+        ?uri omgeving:zaakhandeling ?submission . 
+        ?submission omgeving:Rechtshandeling.verantwoordelijke ?org .
+        {
+          ?uri ?p ?o .
+          ?s ?p ?o .
+          FILTER( ?p != omgeving:zaakhandeling )
+        }
         UNION {
-         ?uri dct:subject/omgeving:locatie ?s .
-        ?s ?p ?o . 
-       }
-        UNION {
-         ?uri dct:subject/omgeving:Activiteit.tijdsbestek ?s .
-        ?s ?p ?o . 
-       } UNION {
-         ?submission omgeving:aanvrager ?s .
-        ?s ?p ?o . 
-       } UNION {
-        ?submission omgeving:aanvrager ?s .
-        ?s ?p ?o . 
-       }
-       VALUES ?uri { ${urisCases.map(uri => sparqlEscapeUri(uri)).join(" ")} }
+          ?uri dct:subject ?s .
+          ?s ?p ?o . 
+        } UNION {
+          ?submission ?p ?s .
+          ?s ?p ?o . 
+        }
+          UNION {
+          ?uri dct:subject/omgeving:locatie ?s .
+          ?s ?p ?o . 
+        }
+          UNION {
+          ?uri dct:subject/omgeving:Activiteit.tijdsbestek ?s .
+          ?s ?p ?o . 
+        } UNION {
+          ?submission omgeving:aanvrager ?s .
+          ?s ?p ?o . 
+        } UNION {
+          ?submission omgeving:aanvrager ?s .
+          ?s ?p ?o . 
+        }
+        VALUES ?uri { ${urisCases.map((uri) => sparqlEscapeUri(uri)).join(" ")} }
+      }
     }
   `;
   // new aanvragen, add to database
-  // todo: Will these include the neccesary mu:uuid's ?
-  result = await querySudo(queryInfo, {}, connectionOptions);
+  result = await querySudo(queryInfo, {}, createConnectionOptionsLoket());
   bindings = result.results.bindings;
   if (bindings.length === 0) {
     return; // no info?
   }
   const triplesToAdd = collapsArrayOfObjects(
     bindings.map((b) => ({
-      orgId: b.orgId.value,
-      triple: `${b.s.value} ${b.p.value} ${b.o.value}`,
-    })), "orgId", "triple", "triples"
+      org: b.org.value,
+      triple: createTriple(b),
+    })),
+    "org",
+    "triple",
+    "triples"
   );
-
+  // console.log(bindings)
+  // console.log(triplesToAdd)
   const queryAddAanvragen = `
+  PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
   INSERT DATA {
-    ${triplesToAdd.map(({orgId, triples}) => {
-      `
-      GRAPH <${PREFIX_ORGANIZATION_GRAPH}${orgId}> {
-      ${triples.join(" .\n")}
-    }`
-    })}
+    ${triplesToAdd.map(({ org, triples }) => {
+      return `GRAPH <${PREFIX_ORGANIZATION_GRAPH}${org.split('/').slice(-1)[0]}> {
+      ${joinAndEnd(triples," .\n")}
+    }
+    `
+    }).join(" ")}
   }
 `;
   await updateSudo(queryAddAanvragen);
@@ -142,14 +176,16 @@ async function startSync() {
     PREFIX mu:   <http://mu.semte.ch/vocabularies/core/>
     PREFIX dbpedia: <http://dbpedia.org/ontology/>
     PREFIX omgeving: <https://data.vlaanderen.be/ns/omgevingsvergunning#>
-    SELECT DISTINCT ?orgId ?uri ?submission {
-      GRAPH ?g {
+    PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
+    SELECT DISTINCT ?org ?uri ?submission {
+      GRAPH ${ENDPOINT_LOKET === "" ? `<${MOCK_GRAPH}>` : "?g"} {
       ?uri omgeving:zaakhandeling ?submission . 
-      ?submission omgeving:Rechtshandeling.verantwoordelijke/mu:uuid ?orgId .
-      VALUES ?uri { ${urisCases.map(uri => sparqlEscapeUri(uri)).join(" ")} }
+      ?submission omgeving:Rechtshandeling.verantwoordelijke ?org .
+      VALUES ?uri { ${urisCases.map((uri) => sparqlEscapeUri(uri)).join(" ")} }
     }
+  }
   `;
-  result = await querySudo(querySubmissionOfCase, {}, connectionOptions);
+  result = await querySudo(querySubmissionOfCase, {}, createConnectionOptionsLoket());
   bindings = result.results.bindings;
   if (bindings.length === 0) {
     return; // no info?
@@ -157,23 +193,26 @@ async function startSync() {
 
   const submissionsToAdd = collapsArrayOfObjects(
     bindings.map((b) => ({
-      orgId: b.orgId.value,
-      triple: `${b.uri.value} omgeving:zaakhandeling ${b.submission.value}`,
-    })), "orgId", "triple", "triples"
+      org: b.org.value,
+      triple: `<${b.uri.value}> omgeving:zaakhandeling <${b.submission.value}>`,
+    })),
+    "org",
+    "triple",
+    "triples"
   );
 
   const submissionsToAddQuery = `
+  PREFIX omgeving: <https://data.vlaanderen.be/ns/omgevingsvergunning#>
+  PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
   INSERT DATA {
-    ${submissionsToAdd.map(({orgId, triples}) => {
-      `
-      GRAPH <${PREFIX_ORGANIZATION_GRAPH}${orgId}> {
-      ${triples.join(" .\n")}
-    }`
-    })}
+    ${submissionsToAdd.map(({ org, triples }) => {
+      return `GRAPH <${PREFIX_ORGANIZATION_GRAPH}${org.split('/').slice(-1)[0]}> {
+      ${joinAndEnd(triples," .\n")}
+      }`
+    }).join(" ")}
   }
 `;
   await updateSudo(submissionsToAddQuery);
-  
 }
 
 app.use(errorHandler);
