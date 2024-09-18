@@ -137,9 +137,6 @@ async function startSync() {
         } UNION {
           ?submission omgeving:aanvrager ?s .
           ?s ?p ?o . 
-        } UNION {
-          ?submission omgeving:aanvrager ?s .
-          ?s ?p ?o . 
         }
         VALUES ?uri { ${urisCases.map((uri) => sparqlEscapeUri(uri)).join(" ")} }
       }
