@@ -4,9 +4,11 @@ import { querySudo, updateSudo } from "@lblod/mu-auth-sudo";
 import { collapsArrayOfObjects, joinAndEnd } from "./utils-javascript";
 
 const PREFIX_ORGANIZATION_GRAPH = "http://mu.semte.ch/graphs/organizations/"
-const ENDPOINT_LOKET = "https://loket-sparql.hackathon-9.s.redhost.be/sparql";
+const ENDPOINT_LOKET = process.env.ENDPOINT_LOKET || "https://loket-sparql.hackathon-9.s.redhost.be/sparql";
 const MOCK_GRAPH = "http://mu.semte.ch/graphs/mock-loket";
 const ALWAYS_SYNC = true;
+const AUTO_SYNC = true;
+
 app.get("/hello", function (req, res) {
   res.send("Hello mu-javascript-template");
 });
@@ -19,7 +21,10 @@ app.get("/start-sync", function (req, res) {
 const syncJob = new CronJob("*/5 * * * *", async function () {
   startSync();
 });
-// syncJob.start();
+
+if(AUTO_SYNC) {
+  syncJob.start();
+}
 
 function createTriple(bindings) {
   let triple = `${sparqlEscapeUri(bindings.s.value)} ${sparqlEscapeUri(bindings.p.value)} `
@@ -199,7 +204,7 @@ async function startSync() {
     "triple",
     "triples"
   );
-  
+
   const submissionsToAddQuery = `
   PREFIX omgeving: <https://data.vlaanderen.be/ns/omgevingsvergunning#>
   PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>
