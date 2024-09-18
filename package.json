@@ -1,4 +1,7 @@
 {
+  "name": "service-aanvragen-sync",
+  "version": "0.3.0",
+  "private": true,
   "dependencies": {
     "@lblod/mu-auth-sudo": "^0.6.1",
     "cron": "^3.1.7"
