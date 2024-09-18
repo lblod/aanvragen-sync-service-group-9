@@ -19,8 +19,9 @@ app.get("/start-sync", function (req, res) {
   res.send("started sync");
 });
 
-const syncJob = new CronJob("*/5 * * * *", async function () {
-  startSync();
+const syncJob = new CronJob(CRON_PATTERN, async function () {
+  console.log("run sync");
+  await startSync();
 });
 
 if(AUTO_SYNC) {
